@@ -1,12 +1,13 @@
-#include <RaeptorCogs/PrimeMover/function_registry.h>
-#include <RaeptorCogs/PrimeMover/info.h>
+#include "RaeptorCogs/Cog/function_registry.h"
+#include <RaeptorCogs/Cog/info.h>
 #include <RaeptorCogs/PrimeMover/logger.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 void logger_log(FILE *out, const char *message) {
-  ((void (*)(FILE *, const char *))function_registry_get(0))(out, message);
+  ((void (*)(FILE *, const char *))fn_registry->get("logger_log"))(out,
+                                                                   message);
 };
 
 void logger_logf(FILE *out, const char *message, ...) {
@@ -36,6 +37,7 @@ void logger_logf(FILE *out, const char *message, ...) {
   va_end(args);
 
   logger_log(out, buf);
+  free(buf);
 };
 
 void logger_log_fallback(FILE *out, const char *message) {
