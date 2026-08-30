@@ -1,3 +1,4 @@
+#include <RaeptorCogs/Cog/cog.h>
 #include <RaeptorCogs/Cog/function_registry.h>
 #include <RaeptorCogs/PrimeMover/cog.h>
 #include <RaeptorCogs/PrimeMover/logger.h>
@@ -6,9 +7,13 @@
 
 int cogs_free(cogs_t *cogs) {
   for (size_t i = 0; i < cogs->count; i++) {
+    void (*cog_on_detach)(void) = dlsym(cogs->items[i].handle, "cog_on_detach");
+    if (dlerror() == NULL) {
+      cog_on_detach();
+    }
     dlclose(cogs->items[i].handle);
   }
-  darray_free(cogs);
+  RC_darray_free(cogs);
   return 0;
 }
 
@@ -55,7 +60,23 @@ int cogs_load_cog(cogs_t *cogs, const char *name) {
 
   *(void **)(&cog_name) = dlsym(cog.handle, "cog_name");
   *(void **)(&cog_version) = dlsym(cog.handle, "cog_version");
-  function_registry_t **fn_registry_ptr = dlsym(cog.handle, "fn_registry");
+  shared_context_t **shared_context_ptr = dlsym(cog.handle, "shared_context");
+
+  // Check if not already loaded
+  for (size_t i = 0; i < cogs->count; i++) {
+    const char *(*loaded_cog_name)(void);
+    *(void **)(&loaded_cog_name) = dlsym(cogs->items[i].handle, "cog_name");
+    if (dlerror() != NULL) {
+      logger_logf(stderr, "dlsym: %s", dlerror());
+      return 1;
+    }
+    if (strcmp(loaded_cog_name(), cog_name()) == 0) {
+      logger_logf(stderr, "Cog %s already loaded", cog_name());
+      free(real_name);
+      dlclose(cog.handle);
+      return 1;
+    }
+  }
 
   char *error = dlerror();
   if (error) {
@@ -65,7 +86,7 @@ int cogs_load_cog(cogs_t *cogs, const char *name) {
     return 1;
   }
 
-  *fn_registry_ptr = fn_registry;
+  *shared_context_ptr = shared_context;
 
   void (*cog_on_attach)(void) = dlsym(cog.handle, "cog_on_attach");
   if (dlerror() == NULL) {
@@ -75,7 +96,31 @@ int cogs_load_cog(cogs_t *cogs, const char *name) {
   // Call it
   logger_logf(stdout, "Loaded %s - %s", cog_name(), cog_version());
 
-  darray_push(cogs, cog);
+  RC_darray_push(cogs, cog);
   free(real_name);
   return 0;
+}
+
+int cogs_unload_cog(cogs_t *cogs, const char *name) {
+  for (size_t i = 0; i < cogs->count; i++) {
+    const char *(*cog_name)(void);
+    *(void **)(&cog_name) = dlsym(cogs->items[i].handle, "cog_name");
+    if (dlerror() != NULL) {
+      logger_logf(stderr, "dlsym: %s", dlerror());
+      return 1;
+    }
+    if (strcmp(cog_name(), name) == 0) {
+      void (*cog_on_detach)(void) =
+          dlsym(cogs->items[i].handle, "cog_on_detach");
+      if (dlerror() == NULL) {
+        cog_on_detach();
+      }
+      dlclose(cogs->items[i].handle);
+      RC_darray_remove(cogs, i);
+      logger_logf(stdout, "Unloaded %s", name);
+      return 0;
+    }
+  }
+  logger_logf(stderr, "Cog %s not found", name);
+  return 1;
 }
